@@ -40,6 +40,10 @@ tâches sur l'appareil.
 - Recherche dans toutes les listes
 - Mode sombre automatique, fonctionnement hors ligne
 - Sauvegarde / restauration en fichier JSON (menu ⋮ en haut) pour changer de téléphone
+- **Import depuis Google Tasks** (menu ⋮ → Importer depuis Google Tasks) : choisissez directement
+  le fichier .zip de [Google Takeout](https://takeout.google.com/settings/takeout/custom/tasks).
+  Listes, tâches, sous-tâches, notes, dates et tâches terminées sont repris ; une liste Google
+  qui porte le même nom qu'une liste de l'app y est fusionnée ; réimporter ne crée pas de doublons
 
 ### Mise en ligne
 

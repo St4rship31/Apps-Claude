@@ -569,3 +569,9 @@ dialog.sheet[open] { animation: slide-up 0.2s ease; }
 .list-stat-row span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .meter { height: 6px; border-radius: 6px; background: var(--border); overflow: hidden; margin-top: 6px; }
 .meter span { display: block; height: 100%; background: var(--chart); border-radius: 6px; }
+
+/* ---------- Import Google Tasks ---------- */
+
+.steps { margin: 0; padding-left: 20px; line-height: 1.5; display: flex; flex-direction: column; gap: 8px; }
+.steps a { color: var(--accent); }
+dialog.small p.note { margin-top: 14px; font-size: 13px; }
