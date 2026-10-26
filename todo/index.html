@@ -38,6 +38,7 @@
     <button data-action="stats">Statistiques</button>
     <button data-action="export">Exporter une sauvegarde</button>
     <button data-action="import">Importer une sauvegarde</button>
+    <button data-action="google">Importer depuis Google Tasks</button>
   </div>
   <div class="menu" id="list-menu" hidden>
     <button data-action="rename-list">Renommer la liste</button>
@@ -50,6 +51,7 @@
     <button data-sort="starred">Suivies en premier</button>
   </div>
   <input type="file" id="import-file" accept="application/json,.json" hidden>
+  <input type="file" id="google-file" accept=".zip,.json,application/zip,application/json" hidden>
 
   <main>
     <div class="list-head" id="list-head">
@@ -185,6 +187,24 @@
         <div id="stat-lists"></div>
       </section>
     </div>
+  </dialog>
+
+  <!-- Import Google Tasks -->
+  <dialog id="google-dialog" class="small">
+    <form method="dialog">
+      <h3>Importer depuis Google Tasks</h3>
+      <ol class="steps">
+        <li>Ouvrez <a href="https://takeout.google.com/settings/takeout/custom/tasks" target="_blank" rel="noopener">Google Takeout</a> (seul « Tasks » est sélectionné).</li>
+        <li>Touchez <b>Étape suivante</b>, puis <b>Créer une exportation</b>.</li>
+        <li>Quelques minutes plus tard, Google vous envoie un e-mail : téléchargez le fichier <b>.zip</b>.</li>
+        <li>Revenez ici et choisissez ce fichier. Pas besoin de le décompresser.</li>
+      </ol>
+      <p class="note">Vos listes Google sont recréées avec leurs tâches, sous-tâches, notes, dates et tâches terminées. Importer deux fois le même fichier ne crée pas de doublons.</p>
+      <div class="dialog-actions">
+        <button value="cancel">Annuler</button>
+        <button value="pick" class="primary">Choisir le fichier</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- Nom de liste -->

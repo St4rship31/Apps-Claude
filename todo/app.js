@@ -1066,6 +1066,15 @@ $('app-menu').addEventListener('click', (e) => {
   if (action === 'stats') openStats();
   else if (action === 'export') exportBackup();
   else if (action === 'import') $('import-file').click();
+  else if (action === 'google') {
+    const dlg = $('google-dialog');
+    dlg.returnValue = '';
+    dlg.showModal();
+  }
+});
+
+$('google-dialog').addEventListener('close', () => {
+  if ($('google-dialog').returnValue === 'pick') $('google-file').click();
 });
 
 $('done-toggle').addEventListener('click', () => {
@@ -1326,6 +1335,127 @@ $('import-file').addEventListener('change', async (e) => {
   } catch {
     undoSnapshot = null;
     showToast('Fichier de sauvegarde invalide');
+  }
+});
+
+// ---------- Import Google Tasks (Google Takeout) ----------
+
+// Lit les fichiers .json d'une archive .zip (format Takeout) sans bibliothèque externe.
+async function readZipJsonFiles(buffer) {
+  const view = new DataView(buffer);
+  const decoder = new TextDecoder();
+  let eocd = -1;
+  for (let i = buffer.byteLength - 22; i >= Math.max(0, buffer.byteLength - 65557); i--) {
+    if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('zip');
+  const count = view.getUint16(eocd + 10, true);
+  let p = view.getUint32(eocd + 16, true);
+  const files = [];
+  for (let n = 0; n < count; n++) {
+    if (view.getUint32(p, true) !== 0x02014b50) break;
+    const method = view.getUint16(p + 10, true);
+    const size = view.getUint32(p + 20, true);
+    const nameLen = view.getUint16(p + 28, true);
+    const extraLen = view.getUint16(p + 30, true);
+    const commentLen = view.getUint16(p + 32, true);
+    const local = view.getUint32(p + 42, true);
+    const name = decoder.decode(new Uint8Array(buffer, p + 46, nameLen));
+    p += 46 + nameLen + extraLen + commentLen;
+    if (!name.toLowerCase().endsWith('.json')) continue;
+    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+    const data = new Uint8Array(buffer, start, size);
+    if (method === 0) {
+      files.push(decoder.decode(data));
+    } else if (method === 8) {
+      const stream = new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      files.push(await new Response(stream).text());
+    }
+  }
+  return files;
+}
+
+function isGoogleTasksExport(data) {
+  return data && Array.isArray(data.items) && data.items.some((l) => l && Array.isArray(l.items) || (l && l.kind === 'tasks#taskList'));
+}
+
+// Convertit l'export Google Tasks : listes, tâches, sous-tâches, notes, dates et tâches terminées.
+function importGoogleTasks(data) {
+  let added = 0;
+  let listsAdded = 0;
+  const known = new Set(state.tasks.map((t) => t.id));
+  data.items.forEach((gl, li) => {
+    if (!gl) return;
+    const name = String(gl.title || 'Google Tasks').trim() || 'Google Tasks';
+    const listId = 'g-' + (gl.id || uid());
+    let list = getList(listId) || state.lists.find((l) => normalize(l.name) === normalize(name));
+    if (!list) {
+      list = { id: listId, name, emoji: EMOJIS[(state.lists.length + li) % EMOJIS.length], sort: 'manual', createdAt: Date.now() };
+      state.lists.push(list);
+      listsAdded++;
+    }
+    const items = (gl.items || [])
+      .filter((t) => t && !t.deleted && String(t.title || '').trim())
+      .sort((a, b) => String(a.position || '').localeCompare(String(b.position || '')));
+    const ids = new Set(items.map((t) => t.id));
+    items.forEach((t, i) => {
+      const id = 'g-' + t.id;
+      if (known.has(id)) return;
+      const done = t.status === 'completed';
+      const doneAt = done ? (Date.parse(t.completed || t.updated) || Date.now()) : null;
+      state.tasks.push({
+        id,
+        listId: list.id,
+        parentId: t.parent && ids.has(t.parent) ? 'g-' + t.parent : null,
+        title: String(t.title).trim(),
+        notes: String(t.notes || '').trim(),
+        due: typeof t.due === 'string' ? t.due.slice(0, 10) : '',
+        time: '',
+        starred: !!t.starred,
+        myDay: '',
+        repeat: '',
+        done,
+        doneAt,
+        createdAt: Date.parse(t.created || t.updated) || Date.now(),
+        order: i,
+      });
+      if (done) {
+        const day = localISO(new Date(doneAt));
+        state.history[day] = (state.history[day] || 0) + 1;
+      }
+      known.add(id);
+      added++;
+    });
+  });
+  return { added, listsAdded };
+}
+
+$('google-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const buffer = await file.arrayBuffer();
+    const isZip = new DataView(buffer).getUint32(0, true) === 0x04034b50;
+    const texts = isZip ? await readZipJsonFiles(buffer) : [new TextDecoder().decode(buffer)];
+    const data = texts.map((t) => { try { return JSON.parse(t); } catch { return null; } }).find(isGoogleTasksExport);
+    if (!data) throw new Error('format');
+    snapshot();
+    const { added, listsAdded } = importGoogleTasks(data);
+    const firstImported = state.lists.find((l) => l.id.startsWith('g-'));
+    if (listsAdded && firstImported) state.view = firstImported.id;
+    save();
+    render();
+    if (added === 0) {
+      undoSnapshot = null;
+      showToast('Ces tâches sont déjà dans l\'app');
+    } else {
+      showToast(`${added} tâche${added > 1 ? 's' : ''} importée${added > 1 ? 's' : ''}` +
+        (listsAdded ? ` dans ${listsAdded} liste${listsAdded > 1 ? 's' : ''}` : ''), true);
+    }
+  } catch {
+    undoSnapshot = null;
+    showToast('Ce fichier ne contient pas d\'export Google Tasks');
   }
 });
 

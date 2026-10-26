@@ -1,6 +1,6 @@
 // Service worker : met l'app en cache pour qu'elle fonctionne hors ligne.
 // Incrémenter CACHE à chaque modification des fichiers pour forcer la mise à jour.
-const CACHE = 'todo-v3';
+const CACHE = 'todo-v4';
 const ASSETS = [
   './',
   'index.html',
