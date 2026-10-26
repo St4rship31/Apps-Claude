@@ -15,14 +15,13 @@ comme une app native, fonctionne hors ligne et garde vos tâches sur l'appareil.
 - Mode sombre automatique, fonctionnement hors ligne
 - Sauvegarde / restauration en fichier JSON (menu ⋮) pour changer de téléphone
 
-### Mise en ligne (une seule fois)
+### Mise en ligne
 
-1. Fusionner ce code dans la branche `main`.
-2. Sur GitHub : **Settings → Pages → Source : GitHub Actions**.
-3. Le workflow `.github/workflows/pages.yml` publie l'app à chaque modification de `todo/`.
-   L'adresse sera du type `https://<utilisateur>.github.io/Apps-Claude/`.
+L'app est publiée par GitHub Pages depuis la branche `main` (**Settings → Pages → Deploy from a branch → `main` / `(root)`**).
+Chaque modification fusionnée dans `main` est mise en ligne automatiquement en une à deux minutes.
 
-> GitHub Pages est gratuit pour un dépôt public. Pour un dépôt privé, il faut un compte GitHub Pro.
+- Adresse de l'app : https://st4rship31.github.io/Apps-Claude/todo/
+- https://st4rship31.github.io/Apps-Claude/ redirige vers l'app.
 
 ### Installer sur le téléphone
 
