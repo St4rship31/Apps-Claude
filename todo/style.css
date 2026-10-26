@@ -8,6 +8,8 @@
   --accent-soft: #eceafe;
   --danger: #dc2626;
   --star: #f59e0b;
+  --sun: #f59e0b;
+  --chart: #4f46e5;
   --shadow: 0 1px 2px rgba(20, 18, 50, 0.06), 0 4px 16px rgba(20, 18, 50, 0.06);
   color-scheme: light dark;
 }
@@ -23,6 +25,8 @@
     --accent-soft: #2a2850;
     --danger: #f87171;
     --star: #fbbf24;
+    --sun: #fbbf24;
+    --chart: #7a73f0;
     --shadow: none;
   }
 }
@@ -495,3 +499,73 @@ dialog.sheet[open] { animation: slide-up 0.2s ease; }
 .subs .star-btn { width: 32px; height: 32px; margin-top: -5px; }
 #task-due { flex: 1; min-width: 0; }
 #task-time { width: 112px; }
+
+/* ---------- Ma journée ---------- */
+
+.progress { height: 6px; border-radius: 6px; background: var(--border); overflow: hidden; margin: 0 0 14px; }
+.progress span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 6px; transition: width 0.3s ease; }
+
+.section-label { margin: 24px 4px 4px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.section-hint { margin: 0 4px 10px; font-size: 13px; color: var(--muted); }
+.tag.myday { color: var(--sun); border-color: var(--sun); }
+.add-myday { color: var(--accent); }
+.add-myday svg { width: 22px; height: 22px; }
+
+.myday-btn {
+  align-self: flex-start;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.myday-btn[aria-pressed="true"] { border-color: var(--sun); color: var(--sun); font-weight: 600; }
+
+/* ---------- Statistiques ---------- */
+
+.stats { padding: 8px 16px 32px; max-width: 640px; margin: 0 auto; }
+.stats .sheet-bar h2 { margin: 0 0 0 4px; font-size: 20px; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0 16px; }
+.tile { background: var(--bg); border-radius: 16px; padding: 14px; }
+.tile-value { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.tile-label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.tile-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+.stat-card { background: var(--bg); border-radius: 16px; padding: 14px; margin-bottom: 16px; }
+.stat-card h3 { margin: 0 0 12px; font-size: 15px; }
+
+.bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; align-items: end; height: 160px; border-bottom: 1px solid var(--border); }
+.bar-col {
+  height: 100%;
+  border: 0;
+  background: none;
+  padding: 0 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.bar-value { font-size: 12px; color: var(--text); font-weight: 600; min-height: 16px; margin-bottom: 4px; visibility: hidden; }
+.bar-col[aria-pressed="true"] .bar-value { visibility: visible; }
+.bar { width: 100%; max-width: 28px; background: var(--chart); border-radius: 4px 4px 0 0; min-height: 0; }
+.bar-col[aria-pressed="false"] .bar { opacity: 0.75; }
+.bar-labels { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-top: 6px; font-size: 12px; color: var(--muted); text-align: center; }
+.bar-labels .is-today { color: var(--text); font-weight: 600; }
+.chart-empty { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+
+.stat-table { margin-top: 12px; font-size: 13px; color: var(--muted); }
+.stat-table summary { cursor: pointer; }
+.stat-table table { width: 100%; border-collapse: collapse; margin-top: 8px; color: var(--text); }
+.stat-table td, .stat-table th { text-align: left; padding: 4px 0; border-bottom: 1px solid var(--border); font-weight: 400; }
+.stat-table td:last-child, .stat-table th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+.list-stat { padding: 8px 0; }
+.list-stat + .list-stat { border-top: 1px solid var(--border); }
+.list-stat-row { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.list-stat-row span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.meter { height: 6px; border-radius: 6px; background: var(--border); overflow: hidden; margin-top: 6px; }
+.meter span { display: block; height: 100%; background: var(--chart); border-radius: 6px; }

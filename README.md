@@ -23,6 +23,17 @@ tâches sur l'appareil.
 - Cocher pour terminer ; section « Terminées » repliable
 - Glisser vers la gauche pour supprimer ; « Annuler » après chaque action importante
 
+**☀️ Ma journée**
+- Une liste du jour qui repart à zéro chaque matin : ajoutez-y des tâches de n'importe quelle liste
+  (bouton « Ajouter à Ma journée » dans le détail d'une tâche, ou directement depuis l'onglet)
+- Suggestions : tâches en retard, prévues aujourd'hui ou suivies, à ajouter d'un geste
+- Barre de progression de la journée ; glisser vers la gauche retire une tâche de Ma journée
+
+**📊 Statistiques** (menu ⋮ en haut)
+- Tâches terminées aujourd'hui et sur 7 jours, avec la comparaison à la semaine précédente
+- Série en cours (jours consécutifs avec au moins une tâche terminée) et record
+- Graphique des 7 derniers jours (touchez une barre pour voir sa valeur) et avancement par liste
+
 **Organisation**
 - Tri par liste : Mon ordre (réorganisation par glisser-déposer avec la poignée ⋮⋮),
   Date (regroupé par En retard / Aujourd'hui / Demain / … / Sans date), ou Suivies en premier

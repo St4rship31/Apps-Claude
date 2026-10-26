@@ -21,6 +21,8 @@ const ICON = {
   handle: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>',
   close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  addCircle: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -48,6 +50,7 @@ function load() {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (data && Array.isArray(data.lists) && data.lists.length && Array.isArray(data.tasks)) {
       data.showDone = data.showDone || {};
+      data.history = data.history || buildHistory(data.tasks);
       return data;
     }
   } catch { /* données illisibles : on repart de zéro */ }
@@ -58,7 +61,20 @@ function load() {
     const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY));
     if (Array.isArray(legacy)) fresh.tasks = legacy.map((t, i) => fromLegacy(t, list.id, i));
   } catch { /* pas d'anciennes données */ }
+  fresh.history = buildHistory(fresh.tasks);
   return fresh;
+}
+
+// Nombre de tâches terminées par jour, reconstruit à partir des tâches existantes.
+function buildHistory(tasks) {
+  const history = {};
+  tasks.forEach((t) => {
+    if (t.done && t.doneAt) {
+      const day = localISO(new Date(t.doneAt));
+      history[day] = (history[day] || 0) + 1;
+    }
+  });
+  return history;
 }
 
 // Convertit une tâche de la première version de l'app.
@@ -204,16 +220,23 @@ const getTask = (id) => state.tasks.find((t) => t.id === id);
 const childrenOf = (id) => state.tasks.filter((t) => t.parentId === id).sort((a, b) => a.order - b.order);
 const currentList = () => getList(state.view);
 
+const SMART_VIEWS = ['myday', 'starred'];
+const inMyDay = (t) => t.myDay === todayISO();
+
 function ensureView() {
-  if (state.view !== 'starred' && !getList(state.view)) state.view = state.lists[0].id;
+  if (!SMART_VIEWS.includes(state.view) && !getList(state.view)) state.view = state.lists[0].id;
 }
 
-function addTask({ title, listId, parentId = null, due = '', time = '', starred = false, atTop = true }) {
+function setMyDay(id, on) {
+  updateTask(id, { myDay: on ? todayISO() : '' }, false);
+}
+
+function addTask({ title, listId, parentId = null, due = '', time = '', starred = false, myDay = '', atTop = true }) {
   const siblings = state.tasks.filter((t) => t.listId === listId && t.parentId === parentId);
   const orders = siblings.map((t) => t.order);
   const order = siblings.length === 0 ? 0 : atTop ? Math.min(...orders) - 1 : Math.max(...orders) + 1;
   const task = {
-    id: uid(), listId, parentId, title, notes: '', due, time, starred, repeat: '',
+    id: uid(), listId, parentId, title, notes: '', due, time, starred, myDay, repeat: '',
     done: false, doneAt: null, createdAt: Date.now(), order,
   };
   state.tasks.push(task);
@@ -229,25 +252,40 @@ function updateTask(id, changes, rerender = true) {
   if (rerender) render();
 }
 
+function setDone(t, done) {
+  if (t.done === done) return;
+  if (done) {
+    t.done = true;
+    t.doneAt = Date.now();
+    const day = todayISO();
+    state.history[day] = (state.history[day] || 0) + 1;
+  } else {
+    if (t.doneAt) {
+      const day = localISO(new Date(t.doneAt));
+      if (state.history[day]) state.history[day]--;
+    }
+    t.done = false;
+    t.doneAt = null;
+  }
+}
+
 function toggleDone(id) {
   const t = getTask(id);
   if (!t) return;
   snapshot();
   if (t.done) {
-    t.done = false;
-    t.doneAt = null;
+    setDone(t, false);
     save();
     render();
     return;
   }
-  t.done = true;
-  t.doneAt = Date.now();
+  setDone(t, true);
   let message = 'Tâche terminée';
   if (t.repeat && !t.parentId) {
     const base = t.due || todayISO();
     let next = nextOccurrence(base, t.repeat);
     while (next < todayISO()) next = nextOccurrence(next, t.repeat);
-    const copy = { ...t, id: uid(), due: next, done: false, doneAt: null, createdAt: Date.now() };
+    const copy = { ...t, id: uid(), due: next, myDay: '', done: false, doneAt: null, createdAt: Date.now() };
     state.tasks.push(copy);
     childrenOf(t.id).forEach((s) => {
       state.tasks.push({ ...s, id: uid(), parentId: copy.id, done: false, doneAt: null });
@@ -276,7 +314,9 @@ function deleteTask(id) {
 function render() {
   ensureView();
   renderTabs();
+  $('progress').hidden = true;
   if (searchQuery) renderSearch();
+  else if (state.view === 'myday') renderMyDay();
   else if (state.view === 'starred') renderStarred();
   else renderList(currentList());
 }
@@ -288,7 +328,11 @@ function activeCount(listId) {
 function renderTabs() {
   const tabs = $('tabs');
   const starredCount = state.tasks.filter((t) => t.starred && !t.done).length;
-  const items = [tabButton('starred', ICON.star, 'Suivies', starredCount)];
+  const myDayCount = state.tasks.filter((t) => inMyDay(t) && !t.done).length;
+  const items = [
+    tabButton('myday', ICON.sun, 'Ma journée', myDayCount),
+    tabButton('starred', ICON.star, 'Suivies', starredCount),
+  ];
   state.lists.forEach((l) => items.push(tabButton(l.id, l.emoji, l.name, activeCount(l.id))));
 
   const add = document.createElement('button');
@@ -401,6 +445,58 @@ function dateGroups(active) {
   return nodes;
 }
 
+function renderMyDay() {
+  const today = todayISO();
+  const mine = state.tasks.filter((t) => inMyDay(t) && getList(t.listId));
+  const active = mine.filter((t) => !t.done).sort((a, b) => dueKey(a).localeCompare(dueKey(b)) || a.createdAt - b.createdAt);
+  const done = mine.filter((t) => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+
+  const dateLabel = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const total = active.length + done.length;
+  setHeader('☀️ Ma journée', dateLabel.charAt(0).toUpperCase() + dateLabel.slice(1) + (total ? ` · ${done.length}/${total} terminée${done.length > 1 ? 's' : ''}` : ''), false);
+  $('progress').hidden = total === 0;
+  $('progress-fill').style.width = total ? (done.length / total * 100) + '%' : '0';
+
+  const nodes = [];
+  if (active.length) {
+    const ul = document.createElement('ul');
+    ul.className = 'list';
+    ul.append(...active.map((t) => wrapLi(renderRow(t, { showList: true, inMyDayView: true }))));
+    nodes.push(ul);
+  }
+
+  // Suggestions : en retard, prévues aujourd'hui, puis suivies.
+  const suggestions = state.tasks
+    .filter((t) => !t.done && !inMyDay(t) && getList(t.listId) && ((t.due && t.due <= today) || t.starred))
+    .sort((a, b) => (b.due && b.due <= today) - (a.due && a.due <= today) || dueKey(a).localeCompare(dueKey(b)))
+    .slice(0, 8);
+  if (suggestions.length) {
+    const label = document.createElement('div');
+    label.className = 'section-label';
+    label.textContent = 'Suggestions';
+    const hint = document.createElement('p');
+    hint.className = 'section-hint';
+    hint.textContent = 'Tâches en retard, prévues aujourd\'hui ou suivies. Touchez + pour les ajouter.';
+    const ul = document.createElement('ul');
+    ul.className = 'list';
+    ul.append(...suggestions.map((t) => wrapLi(renderRow(t, { showList: true, suggest: true }))));
+    nodes.push(label, hint, ul);
+  }
+  $('content').replaceChildren(...nodes);
+
+  $('empty').hidden = active.length > 0;
+  $('empty-text').textContent = done.length
+    ? 'Journée bouclée, bravo !'
+    : 'Choisissez ce que vous voulez faire aujourd\'hui : ajoutez une tâche ci-dessous' + (suggestions.length ? ' ou piochez dans les suggestions.' : '.');
+
+  $('done-section').hidden = done.length === 0;
+  const open = !!state.showDone.myday;
+  $('done-label').textContent = `Terminées aujourd'hui (${done.length})`;
+  $('done-toggle').setAttribute('aria-expanded', String(open));
+  $('done-list').hidden = !open;
+  $('done-list').replaceChildren(...(open ? done.map((t) => wrapLi(renderRow(t, { showList: true }))) : []));
+}
+
 function renderStarred() {
   const items = state.tasks
     .filter((t) => t.starred && !t.done && getList(t.listId))
@@ -459,13 +555,13 @@ function renderGroup(t, { draggable = false, hideSubs = false }) {
   return li;
 }
 
-function renderRow(t, { draggable = false, showList = false, highlight = '', subsHidden = false }) {
+function renderRow(t, { draggable = false, showList = false, highlight = '', subsHidden = false, suggest = false, inMyDayView = false }) {
   const row = document.createElement('div');
   row.className = 'item' + (t.done ? ' done' : '');
 
   const label = document.createElement('div');
   label.className = 'swipe-label';
-  label.textContent = 'Supprimer';
+  label.textContent = inMyDayView ? 'Retirer de Ma journée' : 'Supprimer';
 
   const inner = document.createElement('div');
   inner.className = 'item-inner';
@@ -511,6 +607,7 @@ function renderRow(t, { draggable = false, showList = false, highlight = '', sub
     meta.append(tag(dayLabel(t.due) + (t.time ? ', ' + t.time : ''), cls, ICON.calendar));
   }
   if (t.repeat) meta.append(tag(REPEAT_LABEL[t.repeat], '', ICON.repeat));
+  if (inMyDay(t) && !t.done && !inMyDayView && state.view !== 'myday') meta.append(tag('Ma journée', 'myday', ICON.sun));
   if (!t.parentId && (subsHidden || showList)) {
     const subs = childrenOf(t.id);
     if (subs.length) meta.append(tag(`${subs.filter((s) => s.done).length}/${subs.length}`, '', ICON.subtasks));
@@ -525,9 +622,18 @@ function renderRow(t, { draggable = false, showList = false, highlight = '', sub
   star.innerHTML = ICON.star;
   star.addEventListener('click', () => updateTask(t.id, { starred: !t.starred }));
 
-  inner.append(check, body, star);
+  if (suggest) {
+    const add = document.createElement('button');
+    add.className = 'icon-btn add-myday';
+    add.setAttribute('aria-label', 'Ajouter à Ma journée');
+    add.innerHTML = ICON.addCircle;
+    add.addEventListener('click', () => { setMyDay(t.id, true); render(); });
+    inner.append(check, body, add);
+  } else {
+    inner.append(check, body, star);
+  }
   row.append(label, inner);
-  enableSwipe(row, inner, t.id);
+  enableSwipe(row, inner, t.id, inMyDayView);
   return row;
 }
 
@@ -550,7 +656,7 @@ function tag(text, cls, icon) {
 
 // ---------- Glisser pour supprimer ----------
 
-function enableSwipe(row, inner, id) {
+function enableSwipe(row, inner, id, removeFromMyDay = false) {
   let startX = 0, startY = 0, dx = 0, tracking = false, locked = false;
 
   inner.addEventListener('touchstart', (e) => {
@@ -580,7 +686,13 @@ function enableSwipe(row, inner, id) {
     if (dx < -row.offsetWidth * 0.35) {
       row.classList.add('removing');
       inner.style.transform = 'translateX(-100%)';
-      setTimeout(() => deleteTask(id), 180);
+      setTimeout(() => {
+        if (!removeFromMyDay) return deleteTask(id);
+        snapshot();
+        setMyDay(id, false);
+        render();
+        showToast('Retirée de Ma journée', true);
+      }, 180);
     } else {
       row.classList.remove('swiping');
       inner.style.transform = '';
@@ -669,6 +781,8 @@ function fillTaskDialog(t) {
   $('task-repeat').value = t.repeat || '';
   $('task-repeat').closest('.field').hidden = !!t.parentId;
   $('task-star').setAttribute('aria-pressed', String(!!t.starred));
+  $('task-myday').setAttribute('aria-pressed', String(inMyDay(t)));
+  $('task-myday').textContent = inMyDay(t) ? '☀️ Dans Ma journée · retirer' : '☀️ Ajouter à Ma journée';
   $('task-toggle-done').textContent = t.done ? 'Marquer comme non terminée' : 'Marquer comme terminée';
   document.querySelector('.subtasks').hidden = !!t.parentId;
   renderSubtasks(t);
@@ -684,7 +798,8 @@ function renderSubtasks(t) {
     check.setAttribute('aria-label', s.done ? 'Marquer comme non terminée' : 'Marquer comme terminée');
     check.innerHTML = ICON.check;
     check.addEventListener('click', () => {
-      updateTask(s.id, { done: !s.done, doneAt: s.done ? null : Date.now() }, false);
+      setDone(s, !s.done);
+      save();
       renderSubtasks(t);
     });
     const input = document.createElement('input');
@@ -764,6 +879,12 @@ $('task-star').addEventListener('click', () => {
   if (!t) return;
   updateTask(editingId, { starred: !t.starred }, false);
   $('task-star').setAttribute('aria-pressed', String(!!t.starred));
+});
+$('task-myday').addEventListener('click', () => {
+  const t = editing();
+  if (!t) return;
+  setMyDay(t.id, !inMyDay(t));
+  fillTaskDialog(t);
 });
 $('task-delete').addEventListener('click', () => {
   const id = editingId;
@@ -942,13 +1063,14 @@ $('app-menu').addEventListener('click', (e) => {
   const action = e.target.dataset.action;
   if (!action) return;
   closeMenus();
-  if (action === 'export') exportBackup();
+  if (action === 'stats') openStats();
+  else if (action === 'export') exportBackup();
   else if (action === 'import') $('import-file').click();
 });
 
 $('done-toggle').addEventListener('click', () => {
-  const list = currentList();
-  state.showDone[list.id] = !state.showDone[list.id];
+  const key = state.view;
+  state.showDone[key] = !state.showDone[key];
   save();
   render();
 });
@@ -1001,6 +1123,7 @@ $('composer').addEventListener('submit', (e) => {
     due: $('new-due').value || parsed.due,
     time: $('new-due').value ? '' : parsed.time,
     starred: $('new-star').checked || state.view === 'starred',
+    myDay: state.view === 'myday' ? todayISO() : '',
   });
   if (searchQuery) closeSearch();
   input.value = '';
@@ -1017,10 +1140,146 @@ $('extra-btn').addEventListener('click', () => {
   $('extra-btn').setAttribute('aria-expanded', String(!extra.hidden));
 });
 
+// ---------- Statistiques ----------
+
+function streaks() {
+  const history = state.history;
+  const today = todayISO();
+  let current = 0;
+  let day = history[today] ? today : addDays(today, -1);
+  while (history[day] > 0) { current++; day = addDays(day, -1); }
+
+  let best = 0, run = 0, prev = null;
+  Object.keys(history).filter((d) => history[d] > 0).sort().forEach((d) => {
+    run = prev && addDays(prev, 1) === d ? run + 1 : 1;
+    best = Math.max(best, run);
+    prev = d;
+  });
+  return { current, best: Math.max(best, current) };
+}
+
+function tile(value, label, sub) {
+  const el = document.createElement('div');
+  el.className = 'tile';
+  const v = document.createElement('div');
+  v.className = 'tile-value';
+  v.textContent = value;
+  const l = document.createElement('div');
+  l.className = 'tile-label';
+  l.textContent = label;
+  el.append(v, l);
+  if (sub) {
+    const s = document.createElement('div');
+    s.className = 'tile-sub';
+    s.textContent = sub;
+    el.append(s);
+  }
+  return el;
+}
+
+function openStats() {
+  const today = todayISO();
+  const days = [...Array(7)].map((_, i) => addDays(today, i - 6));
+  const counts = days.map((d) => state.history[d] || 0);
+  const week = counts.reduce((a, b) => a + b, 0);
+  const prevWeek = [...Array(7)].map((_, i) => state.history[addDays(today, i - 13)] || 0).reduce((a, b) => a + b, 0);
+  const { current, best } = streaks();
+  const late = state.tasks.filter((t) => isLate(t) && getList(t.listId)).length;
+
+  let weekSub = '';
+  if (prevWeek > 0) {
+    const diff = week - prevWeek;
+    weekSub = diff === 0 ? 'Autant que la semaine d\'avant' : `${diff > 0 ? '+' : ''}${diff} par rapport à la semaine d'avant`;
+  }
+  $('stat-tiles').replaceChildren(
+    tile(String(counts[6]), 'Terminées aujourd\'hui'),
+    tile(String(week), '7 derniers jours', weekSub),
+    tile(`${current} j`, 'Série en cours', `Record : ${best} jour${best > 1 ? 's' : ''}`),
+    tile(String(late), 'En retard'),
+  );
+
+  // Barres des 7 derniers jours : une seule série, valeur affichée au toucher.
+  const max = Math.max(...counts, 1);
+  const labels = days.map((d) => new Date(d + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'short' }).replace('.', ''));
+  const bars = $('stat-bars');
+  let selected = 6;
+  const drawBars = () => {
+    bars.replaceChildren(...counts.map((c, i) => {
+      const col = document.createElement('button');
+      col.type = 'button';
+      col.className = 'bar-col';
+      col.setAttribute('aria-pressed', String(i === selected));
+      col.setAttribute('aria-label', `${dayLabel(days[i])} : ${c} tâche${c > 1 ? 's' : ''} terminée${c > 1 ? 's' : ''}`);
+      const value = document.createElement('span');
+      value.className = 'bar-value';
+      value.textContent = c;
+      const bar = document.createElement('span');
+      bar.className = 'bar';
+      bar.style.height = `calc((100% - 20px) * ${c / max})`;
+      col.append(value, bar);
+      col.addEventListener('click', () => { selected = i; drawBars(); });
+      return col;
+    }));
+  };
+  drawBars();
+  const labelRow = document.createElement('div');
+  labelRow.className = 'bar-labels';
+  labelRow.append(...labels.map((l, i) => {
+    const span = document.createElement('span');
+    span.textContent = i === 6 ? 'auj.' : l;
+    if (i === 6) span.className = 'is-today';
+    return span;
+  }));
+  bars.nextElementSibling?.classList.contains('bar-labels') && bars.nextElementSibling.remove();
+  bars.after(labelRow);
+  document.querySelector('.chart-empty')?.remove();
+  if (week === 0) {
+    const p = document.createElement('p');
+    p.className = 'chart-empty';
+    p.textContent = 'Aucune tâche terminée ces 7 derniers jours.';
+    labelRow.after(p);
+  }
+
+  $('stat-table').replaceChildren(...days.map((d, i) => {
+    const tr = document.createElement('tr');
+    const a = document.createElement('td');
+    a.textContent = dayLabel(d);
+    const b = document.createElement('td');
+    b.textContent = counts[i];
+    tr.append(a, b);
+    return tr;
+  }));
+
+  $('stat-lists').replaceChildren(...state.lists.map((l) => {
+    const top = state.tasks.filter((t) => t.listId === l.id && !t.parentId);
+    const done = top.filter((t) => t.done).length;
+    const el = document.createElement('div');
+    el.className = 'list-stat';
+    const row = document.createElement('div');
+    row.className = 'list-stat-row';
+    const name = document.createElement('span');
+    name.textContent = `${l.emoji} ${l.name}`;
+    const nums = document.createElement('span');
+    nums.textContent = top.length ? `${done}/${top.length} terminée${done > 1 ? 's' : ''}` : 'Vide';
+    row.append(name, nums);
+    const meter = document.createElement('div');
+    meter.className = 'meter';
+    const fill = document.createElement('span');
+    fill.style.width = top.length ? (done / top.length * 100) + '%' : '0';
+    meter.append(fill);
+    el.append(row, meter);
+    return el;
+  }));
+
+  $('stats-dialog').showModal();
+}
+
+$('stats-close').addEventListener('click', () => $('stats-dialog').close());
+
 // ---------- Sauvegarde ----------
 
 function exportBackup() {
-  const data = { version: 2, exportedAt: new Date().toISOString(), lists: state.lists, tasks: state.tasks };
+  const data = { version: 2, exportedAt: new Date().toISOString(), lists: state.lists, tasks: state.tasks, history: state.history };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1048,6 +1307,11 @@ $('import-file').addEventListener('change', async (e) => {
       const known = new Set(state.tasks.map((t) => t.id));
       data.tasks.filter((t) => t && t.id && typeof t.title === 'string' && lists.has(t.listId) && !known.has(t.id))
         .forEach((t) => { state.tasks.push(t); added++; });
+      if (data.history && typeof data.history === 'object') {
+        Object.entries(data.history).forEach(([d, n]) => {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(n)) state.history[d] = Math.max(state.history[d] || 0, n);
+        });
+      }
     } else {
       const legacy = Array.isArray(data) ? data : data && data.tasks;
       if (!Array.isArray(legacy)) throw new Error('format');
