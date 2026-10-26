@@ -1,7 +1,7 @@
 {
-  "name": "Mes tâches",
+  "name": "Tâches",
   "short_name": "Tâches",
-  "description": "Une to-do list simple, installable et utilisable hors ligne.",
+  "description": "Vos listes de tâches, installables et utilisables hors ligne.",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",

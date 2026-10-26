@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Mes tâches</title>
-  <meta name="description" content="Une to-do list simple, installable et utilisable hors ligne.">
+  <title>Tâches</title>
+  <meta name="description" content="Vos listes de tâches, installables et utilisables hors ligne.">
   <meta name="theme-color" content="#4f46e5">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -18,64 +18,196 @@
 <body>
   <header class="top">
     <div class="top-row">
-      <div>
-        <h1>Mes tâches</h1>
-        <p class="subtitle" id="summary"></p>
+      <h1>Tâches</h1>
+      <div class="top-actions">
+        <button class="icon-btn" id="search-btn" aria-label="Rechercher" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        </button>
+        <button class="icon-btn" id="app-menu-btn" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 24 24" class="dots" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+        </button>
       </div>
-      <button class="icon-btn" id="menu-btn" aria-label="Menu" aria-haspopup="true" aria-expanded="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
-      </button>
     </div>
-    <div class="menu" id="menu" hidden>
-      <button data-action="clear-done">Supprimer les tâches terminées</button>
-      <button data-action="export">Exporter une sauvegarde</button>
-      <button data-action="import">Importer une sauvegarde</button>
+    <div class="search" id="search" hidden>
+      <input type="search" id="search-input" placeholder="Rechercher dans toutes les listes…" enterkeyhint="search">
     </div>
-    <input type="file" id="import-file" accept="application/json,.json" hidden>
-    <nav class="filters" role="tablist">
-      <button role="tab" data-filter="active" aria-selected="true">À faire</button>
-      <button role="tab" data-filter="today" aria-selected="false">Aujourd'hui</button>
-      <button role="tab" data-filter="done" aria-selected="false">Terminées</button>
-      <button role="tab" data-filter="all" aria-selected="false">Toutes</button>
-    </nav>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Listes"></nav>
   </header>
 
+  <div class="menu" id="app-menu" hidden>
+    <button data-action="stats">Statistiques</button>
+    <button data-action="export">Exporter une sauvegarde</button>
+    <button data-action="import">Importer une sauvegarde</button>
+  </div>
+  <div class="menu" id="list-menu" hidden>
+    <button data-action="rename-list">Renommer la liste</button>
+    <button data-action="clear-done">Supprimer les tâches terminées</button>
+    <button data-action="delete-list" class="danger-text">Supprimer la liste</button>
+  </div>
+  <div class="menu" id="sort-menu" hidden>
+    <button data-sort="manual">Mon ordre</button>
+    <button data-sort="date">Date</button>
+    <button data-sort="starred">Suivies en premier</button>
+  </div>
+  <input type="file" id="import-file" accept="application/json,.json" hidden>
+
   <main>
-    <ul class="list" id="list"></ul>
+    <div class="list-head" id="list-head">
+      <h2 id="list-title"></h2>
+      <div class="list-head-actions" id="list-actions">
+        <button class="chip-btn" id="sort-btn" aria-haspopup="true">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg>
+          <span id="sort-label"></span>
+        </button>
+        <button class="icon-btn" id="list-menu-btn" aria-label="Options de la liste" aria-haspopup="true" aria-expanded="false">
+          <svg viewBox="0 0 24 24" class="dots" aria-hidden="true"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+        </button>
+      </div>
+    </div>
+    <p class="list-sub" id="list-sub"></p>
+    <div class="progress" id="progress" hidden><span id="progress-fill"></span></div>
+
+    <div id="content"></div>
+
     <div class="empty" id="empty" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>
       <p id="empty-text"></p>
     </div>
+
+    <section class="done-section" id="done-section" hidden>
+      <button class="done-toggle" id="done-toggle" aria-expanded="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        <span id="done-label"></span>
+      </button>
+      <ul class="list" id="done-list" hidden></ul>
+    </section>
   </main>
 
   <form class="composer" id="composer" autocomplete="off">
     <div class="composer-extra" id="composer-extra" hidden>
-      <label>Échéance <input type="date" id="new-due"></label>
-      <label class="prio-toggle"><input type="checkbox" id="new-prio"> Prioritaire</label>
+      <label>Date <input type="date" id="new-due"></label>
+      <label class="star-toggle"><input type="checkbox" id="new-star"> ★ Suivie</label>
     </div>
     <div class="composer-row">
-      <button type="button" class="icon-btn" id="extra-btn" aria-label="Options de la tâche" aria-expanded="false">
+      <button type="button" class="icon-btn" id="extra-btn" aria-label="Date et suivi" aria-expanded="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
       </button>
-      <input type="text" id="new-title" placeholder="Ajouter une tâche…" enterkeyhint="done" maxlength="200" required>
+      <input type="text" id="new-title" placeholder="Ajouter une tâche…" enterkeyhint="done" maxlength="300" required>
       <button type="submit" class="add-btn" aria-label="Ajouter">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       </button>
     </div>
+    <p class="hint" id="nl-hint" hidden></p>
   </form>
 
-  <dialog id="edit-dialog">
-    <form method="dialog" id="edit-form">
-      <h2>Modifier la tâche</h2>
-      <label>Titre <input type="text" id="edit-title" maxlength="200" required></label>
-      <label>Notes <textarea id="edit-notes" rows="3"></textarea></label>
-      <label>Échéance <input type="date" id="edit-due"></label>
-      <label class="prio-toggle"><input type="checkbox" id="edit-prio"> Prioritaire</label>
-      <div class="dialog-actions">
-        <button type="button" class="danger" id="edit-delete">Supprimer</button>
+  <!-- Détail d'une tâche -->
+  <dialog id="task-dialog" class="sheet">
+    <form method="dialog" id="task-form">
+      <div class="sheet-bar">
+        <button type="button" class="icon-btn" id="task-close" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+        </button>
         <span class="spacer"></span>
-        <button type="button" id="edit-cancel">Annuler</button>
-        <button type="submit" class="primary">Enregistrer</button>
+        <button type="button" class="icon-btn star-btn" id="task-star" aria-label="Suivre" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="task-delete" aria-label="Supprimer la tâche">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+        </button>
+      </div>
+      <label class="field-inline">
+        <span class="sr-only">Liste</span>
+        <select id="task-list"></select>
+      </label>
+      <button type="button" class="myday-btn" id="task-myday" aria-pressed="false"></button>
+      <input type="text" id="task-title" class="title-input" maxlength="300" placeholder="Titre" required>
+      <label class="field">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        <textarea id="task-notes" rows="2" placeholder="Ajouter des détails"></textarea>
+      </label>
+      <div class="field">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        <input type="date" id="task-due" aria-label="Date">
+        <input type="time" id="task-time" aria-label="Heure">
+        <button type="button" class="link-btn" id="task-due-clear">Effacer</button>
+      </div>
+      <div class="field quick-dates">
+        <span class="field-icon-space"></span>
+        <button type="button" class="chip-btn" data-quick="0">Aujourd'hui</button>
+        <button type="button" class="chip-btn" data-quick="1">Demain</button>
+        <button type="button" class="chip-btn" data-quick="7">Dans 1 semaine</button>
+      </div>
+      <label class="field">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>
+        <select id="task-repeat">
+          <option value="">Ne se répète pas</option>
+          <option value="daily">Tous les jours</option>
+          <option value="weekdays">Du lundi au vendredi</option>
+          <option value="weekly">Toutes les semaines</option>
+          <option value="monthly">Tous les mois</option>
+          <option value="yearly">Tous les ans</option>
+        </select>
+      </label>
+      <div class="subtasks">
+        <div class="subtasks-title">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v10a3 3 0 0 0 3 3h11M15 13l4 4-4 4"/></svg>
+          Sous-tâches
+        </div>
+        <ul id="sub-list"></ul>
+        <div class="sub-add">
+          <input type="text" id="sub-new" placeholder="Ajouter une sous-tâche" maxlength="300" enterkeyhint="done">
+        </div>
+      </div>
+      <button type="button" class="primary-btn" id="task-toggle-done"></button>
+    </form>
+  </dialog>
+
+  <!-- Statistiques -->
+  <dialog id="stats-dialog" class="sheet">
+    <div class="stats">
+      <div class="sheet-bar">
+        <button type="button" class="icon-btn" id="stats-close" aria-label="Fermer">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+        </button>
+        <h2>Statistiques</h2>
+      </div>
+      <div class="tiles" id="stat-tiles"></div>
+      <section class="stat-card">
+        <h3>Tâches terminées · 7 derniers jours</h3>
+        <div class="bars" id="stat-bars"></div>
+        <details class="stat-table">
+          <summary>Voir les données</summary>
+          <table id="stat-table"></table>
+        </details>
+      </section>
+      <section class="stat-card">
+        <h3>Par liste</h3>
+        <div id="stat-lists"></div>
+      </section>
+    </div>
+  </dialog>
+
+  <!-- Nom de liste -->
+  <dialog id="list-dialog" class="small">
+    <form method="dialog" id="list-form">
+      <h3 id="list-dialog-title"></h3>
+      <input type="text" id="list-name" maxlength="60" placeholder="Nom de la liste" required>
+      <div class="emoji-row" id="emoji-row"></div>
+      <div class="dialog-actions">
+        <button type="button" id="list-cancel">Annuler</button>
+        <button type="submit" class="primary" id="list-save">Enregistrer</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Confirmation -->
+  <dialog id="confirm-dialog" class="small">
+    <form method="dialog">
+      <h3 id="confirm-title"></h3>
+      <p id="confirm-text"></p>
+      <div class="dialog-actions">
+        <button value="cancel">Annuler</button>
+        <button value="ok" class="primary danger-bg" id="confirm-ok">Supprimer</button>
       </div>
     </form>
   </dialog>
