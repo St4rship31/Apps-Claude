@@ -1,60 +1,98 @@
 'use strict';
 
-const STORAGE_KEY = 'todo.tasks.v1';
-const FILTER_KEY = 'todo.filter';
+const STORAGE_KEY = 'todo.state.v2';
+const LEGACY_KEY = 'todo.tasks.v1';
+const EMOJIS = ['📋', '🏠', '💼', '🛒', '🎯', '📚', '💡', '❤️', '✈️', '💪', '🎉', '💰'];
+const REPEAT_LABEL = {
+  daily: 'Tous les jours',
+  weekdays: 'En semaine',
+  weekly: 'Chaque semaine',
+  monthly: 'Chaque mois',
+  yearly: 'Chaque année',
+};
+const SORT_LABEL = { manual: 'Mon ordre', date: 'Date', starred: 'Suivies' };
+
+const ICON = {
+  check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>',
+  star: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>',
+  subtasks: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v10a3 3 0 0 0 3 3h11M15 13l4 4-4 4"/></svg>',
+  handle: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>',
+  close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+};
 
 const $ = (id) => document.getElementById(id);
 
-let tasks = load();
-let filter = readPref(FILTER_KEY) || 'active';
-let undoState = null;
+let state = load();
+let undoSnapshot = null;
 let toastTimer = null;
 let editingId = null;
+let searchQuery = '';
+let listDialogMode = null;
+let pickedEmoji = EMOJIS[0];
 
 // ---------- Stockage ----------
+
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+function newList(name, emoji) {
+  return { id: uid(), name, emoji: emoji || EMOJIS[0], sort: 'manual', createdAt: Date.now() };
+}
 
 function load() {
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
+    if (data && Array.isArray(data.lists) && data.lists.length && Array.isArray(data.tasks)) {
+      data.showDone = data.showDone || {};
+      return data;
+    }
+  } catch { /* données illisibles : on repart de zéro */ }
+
+  const list = newList('Mes tâches', '📋');
+  const fresh = { lists: [list], tasks: [], view: list.id, showDone: {} };
+  try {
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_KEY));
+    if (Array.isArray(legacy)) fresh.tasks = legacy.map((t, i) => fromLegacy(t, list.id, i));
+  } catch { /* pas d'anciennes données */ }
+  return fresh;
+}
+
+// Convertit une tâche de la première version de l'app.
+function fromLegacy(t, listId, index) {
+  return {
+    id: String(t.id || uid()),
+    listId,
+    parentId: null,
+    title: String(t.title || ''),
+    notes: t.notes || '',
+    due: t.due || '',
+    time: '',
+    starred: !!(t.starred || t.prio),
+    repeat: '',
+    done: !!t.done,
+    doneAt: t.doneAt || null,
+    createdAt: t.createdAt || Date.now(),
+    order: index,
+  };
 }
 
 function save() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
     showToast('Impossible d\'enregistrer sur cet appareil');
   }
 }
 
-function readPref(key) {
-  try { return localStorage.getItem(key); } catch { return null; }
-}
-
-function writePref(key, value) {
-  try { localStorage.setItem(key, value); } catch { /* préférence non essentielle */ }
+function snapshot() {
+  undoSnapshot = JSON.parse(JSON.stringify(state));
 }
 
 // ---------- Dates ----------
-
-function todayISO() {
-  return localISO(new Date());
-}
-
-function formatDue(iso) {
-  const today = todayISO();
-  if (iso === today) return 'Aujourd\'hui';
-  const tomorrow = new Date(today + 'T00:00:00');
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  if (iso === localISO(tomorrow)) return 'Demain';
-  const date = new Date(iso + 'T00:00:00');
-  const opts = { weekday: 'short', day: 'numeric', month: 'short' };
-  if (date.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
-  return date.toLocaleDateString('fr-FR', opts);
-}
 
 function localISO(d) {
   const y = d.getFullYear();
@@ -63,103 +101,367 @@ function localISO(d) {
   return `${y}-${m}-${day}`;
 }
 
+function todayISO() {
+  return localISO(new Date());
+}
+
+function addDays(iso, n) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return localISO(d);
+}
+
+function nowTime() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+function dayLabel(iso) {
+  const today = todayISO();
+  if (iso === today) return 'Aujourd\'hui';
+  if (iso === addDays(today, 1)) return 'Demain';
+  if (iso === addDays(today, -1)) return 'Hier';
+  const date = new Date(iso + 'T00:00:00');
+  const opts = { weekday: 'short', day: 'numeric', month: 'short' };
+  if (date.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return date.toLocaleDateString('fr-FR', opts);
+}
+
+function isLate(t) {
+  if (!t.due || t.done) return false;
+  const today = todayISO();
+  return t.due < today || (t.due === today && !!t.time && t.time < nowTime());
+}
+
+function dueKey(t) {
+  return t.due ? t.due + 'T' + (t.time || '99:99') : '9999';
+}
+
+function nextOccurrence(iso, repeat) {
+  const d = new Date(iso + 'T00:00:00');
+  switch (repeat) {
+    case 'daily': d.setDate(d.getDate() + 1); break;
+    case 'weekdays':
+      do { d.setDate(d.getDate() + 1); } while (d.getDay() === 0 || d.getDay() === 6);
+      break;
+    case 'weekly': d.setDate(d.getDate() + 7); break;
+    case 'monthly': {
+      const day = d.getDate();
+      d.setDate(1);
+      d.setMonth(d.getMonth() + 1);
+      d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+      break;
+    }
+    case 'yearly': d.setFullYear(d.getFullYear() + 1); break;
+  }
+  return localISO(d);
+}
+
+// ---------- Saisie en langage naturel ----------
+// « Appeler Paul demain 18h » → titre « Appeler Paul », date de demain, 18:00.
+
+const WEEKDAYS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+
+function parseQuick(text) {
+  let rest = ' ' + text + ' ';
+  let due = '';
+  let time = '';
+  const today = todayISO();
+  const take = (re) => {
+    const m = rest.match(re);
+    if (m) rest = rest.replace(re, ' ');
+    return m;
+  };
+
+  if (take(/\s(après[- ]demain|apres[- ]demain)(?=\s)/i)) due = addDays(today, 2);
+  else if (take(/\s(aujourd'hui|aujourd’hui|aujourdhui|ce soir)(?=\s)/i)) due = today;
+  else if (take(/\sdemain(?=\s)/i)) due = addDays(today, 1);
+  else {
+    const m = take(new RegExp('\\s(' + WEEKDAYS.join('|') + ')(\\s+prochain)?(?=\\s)', 'i'));
+    if (m) {
+      const target = WEEKDAYS.indexOf(m[1].toLowerCase());
+      let diff = (target - new Date().getDay() + 7) % 7;
+      if (diff === 0) diff = 7;
+      due = addDays(today, diff);
+    }
+  }
+
+  const tm = take(/\s(?:à\s*)?([01]?\d|2[0-3])\s*(?:h|:)\s*([0-5]\d)?(?=\s)/i);
+  if (tm) {
+    time = tm[1].padStart(2, '0') + ':' + (tm[2] || '00');
+    if (!due) due = time > nowTime() ? today : addDays(today, 1);
+  }
+
+  const title = rest.replace(/\s+à\s*$/i, ' ').replace(/\s+/g, ' ').trim();
+  if (!title || (!due && !time)) return { title: text.trim(), due: '', time: '' };
+  return { title, due, time };
+}
+
 // ---------- Modèle ----------
 
-function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const getList = (id) => state.lists.find((l) => l.id === id);
+const getTask = (id) => state.tasks.find((t) => t.id === id);
+const childrenOf = (id) => state.tasks.filter((t) => t.parentId === id).sort((a, b) => a.order - b.order);
+const currentList = () => getList(state.view);
+
+function ensureView() {
+  if (state.view !== 'starred' && !getList(state.view)) state.view = state.lists[0].id;
 }
 
-function addTask(title, due, prio) {
-  tasks.push({ id: uid(), title, notes: '', due: due || '', prio: !!prio, done: false, createdAt: Date.now(), doneAt: null });
+function addTask({ title, listId, parentId = null, due = '', time = '', starred = false, atTop = true }) {
+  const siblings = state.tasks.filter((t) => t.listId === listId && t.parentId === parentId);
+  const orders = siblings.map((t) => t.order);
+  const order = siblings.length === 0 ? 0 : atTop ? Math.min(...orders) - 1 : Math.max(...orders) + 1;
+  const task = {
+    id: uid(), listId, parentId, title, notes: '', due, time, starred, repeat: '',
+    done: false, doneAt: null, createdAt: Date.now(), order,
+  };
+  state.tasks.push(task);
   save();
-  render();
+  return task;
 }
 
-function updateTask(id, changes) {
-  const t = tasks.find((x) => x.id === id);
+function updateTask(id, changes, rerender = true) {
+  const t = getTask(id);
   if (!t) return;
   Object.assign(t, changes);
   save();
-  render();
+  if (rerender) render();
 }
 
-function toggleTask(id) {
-  const t = tasks.find((x) => x.id === id);
+function toggleDone(id) {
+  const t = getTask(id);
   if (!t) return;
-  updateTask(id, { done: !t.done, doneAt: t.done ? null : Date.now() });
+  snapshot();
+  if (t.done) {
+    t.done = false;
+    t.doneAt = null;
+    save();
+    render();
+    return;
+  }
+  t.done = true;
+  t.doneAt = Date.now();
+  let message = 'Tâche terminée';
+  if (t.repeat && !t.parentId) {
+    const base = t.due || todayISO();
+    let next = nextOccurrence(base, t.repeat);
+    while (next < todayISO()) next = nextOccurrence(next, t.repeat);
+    const copy = { ...t, id: uid(), due: next, done: false, doneAt: null, createdAt: Date.now() };
+    state.tasks.push(copy);
+    childrenOf(t.id).forEach((s) => {
+      state.tasks.push({ ...s, id: uid(), parentId: copy.id, done: false, doneAt: null });
+    });
+    message = 'Terminée · prochaine : ' + dayLabel(next).toLowerCase();
+  }
+  save();
+  render();
+  showToast(message, true);
   if (navigator.vibrate) navigator.vibrate(10);
 }
 
-function deleteTasks(ids, message) {
-  const snapshot = tasks.slice();
-  tasks = tasks.filter((t) => !ids.includes(t.id));
+function deleteTask(id) {
+  const t = getTask(id);
+  if (!t) return;
+  snapshot();
+  const ids = new Set([id, ...childrenOf(id).map((s) => s.id)]);
+  state.tasks = state.tasks.filter((x) => !ids.has(x.id));
   save();
   render();
-  undoState = snapshot;
-  showToast(message, true);
-}
-
-function sortTasks(list) {
-  const today = todayISO();
-  return list.slice().sort((a, b) => {
-    if (a.done !== b.done) return a.done ? 1 : -1;
-    if (a.done) return (b.doneAt || 0) - (a.doneAt || 0);
-    const aLate = a.due && a.due <= today;
-    const bLate = b.due && b.due <= today;
-    if (aLate !== bLate) return aLate ? -1 : 1;
-    if (a.prio !== b.prio) return a.prio ? -1 : 1;
-    if (a.due !== b.due) {
-      if (!a.due) return 1;
-      if (!b.due) return -1;
-      return a.due < b.due ? -1 : 1;
-    }
-    return a.createdAt - b.createdAt;
-  });
-}
-
-function visibleTasks() {
-  const today = todayISO();
-  switch (filter) {
-    case 'done': return tasks.filter((t) => t.done);
-    case 'today': return tasks.filter((t) => !t.done && (t.due && t.due <= today || t.prio));
-    case 'all': return tasks;
-    default: return tasks.filter((t) => !t.done);
-  }
+  showToast('Tâche supprimée', true);
 }
 
 // ---------- Rendu ----------
 
-const EMPTY_TEXT = {
-  active: 'Rien à faire. Profitez-en !',
-  today: 'Rien d\'urgent ni de prioritaire pour aujourd\'hui.',
-  done: 'Aucune tâche terminée pour l\'instant.',
-  all: 'Ajoutez votre première tâche ci-dessous.',
-};
-
 function render() {
-  const list = $('list');
-  const items = sortTasks(visibleTasks());
-  const today = todayISO();
-  list.replaceChildren(...items.map((t) => renderItem(t, today)));
-
-  $('empty').hidden = items.length > 0;
-  $('empty-text').textContent = EMPTY_TEXT[filter];
-
-  const remaining = tasks.filter((t) => !t.done).length;
-  const late = tasks.filter((t) => !t.done && t.due && t.due < today).length;
-  let summary = remaining === 0 ? 'Tout est fait' : `${remaining} tâche${remaining > 1 ? 's' : ''} à faire`;
-  if (late) summary += ` · ${late} en retard`;
-  $('summary').textContent = summary;
-
-  document.querySelectorAll('.filters button').forEach((b) => {
-    b.setAttribute('aria-selected', String(b.dataset.filter === filter));
-  });
+  ensureView();
+  renderTabs();
+  if (searchQuery) renderSearch();
+  else if (state.view === 'starred') renderStarred();
+  else renderList(currentList());
 }
 
-function renderItem(t, today) {
+function activeCount(listId) {
+  return state.tasks.filter((t) => t.listId === listId && !t.parentId && !t.done).length;
+}
+
+function renderTabs() {
+  const tabs = $('tabs');
+  const starredCount = state.tasks.filter((t) => t.starred && !t.done).length;
+  const items = [tabButton('starred', ICON.star, 'Suivies', starredCount)];
+  state.lists.forEach((l) => items.push(tabButton(l.id, l.emoji, l.name, activeCount(l.id))));
+
+  const add = document.createElement('button');
+  add.className = 'tab new-list';
+  add.innerHTML = ICON.plus + '<span>Nouvelle liste</span>';
+  add.addEventListener('click', () => openListDialog('create'));
+  items.push(add);
+
+  tabs.replaceChildren(...items);
+  const selected = tabs.querySelector('[aria-selected="true"]');
+  if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function tabButton(id, icon, name, count) {
+  const b = document.createElement('button');
+  b.className = 'tab';
+  b.setAttribute('role', 'tab');
+  b.setAttribute('aria-selected', String(!searchQuery && state.view === id));
+  if (icon.startsWith('<')) {
+    b.innerHTML = icon;
+  } else {
+    const em = document.createElement('span');
+    em.setAttribute('aria-hidden', 'true');
+    em.textContent = icon;
+    b.append(em);
+  }
+  const label = document.createElement('span');
+  label.textContent = name;
+  b.append(label);
+  if (count) {
+    const c = document.createElement('span');
+    c.className = 'count';
+    c.textContent = count;
+    b.append(c);
+  }
+  b.addEventListener('click', () => {
+    if (searchQuery) closeSearch();
+    state.view = id;
+    save();
+    render();
+    window.scrollTo({ top: 0 });
+  });
+  return b;
+}
+
+function setHeader(title, sub, showActions) {
+  $('list-title').textContent = title;
+  $('list-sub').textContent = sub;
+  $('list-actions').hidden = !showActions;
+}
+
+function renderList(list) {
+  const top = state.tasks.filter((t) => t.listId === list.id && !t.parentId);
+  const active = top.filter((t) => !t.done);
+  const done = top.filter((t) => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+  const late = active.filter(isLate).length;
+
+  let sub = active.length === 0 ? '' : `${active.length} tâche${active.length > 1 ? 's' : ''}`;
+  if (late) sub += ` · ${late} en retard`;
+  setHeader(`${list.emoji} ${list.name}`, sub, true);
+  $('sort-label').textContent = SORT_LABEL[list.sort];
+
+  const content = $('content');
+  if (list.sort === 'date') {
+    content.replaceChildren(...dateGroups(active));
+  } else {
+    const sorted = active.slice().sort((a, b) => {
+      if (list.sort === 'starred' && a.starred !== b.starred) return a.starred ? -1 : 1;
+      return a.order - b.order;
+    });
+    const ul = document.createElement('ul');
+    ul.className = 'list';
+    ul.append(...sorted.map((t) => renderGroup(t, { draggable: list.sort === 'manual' })));
+    content.replaceChildren(ul);
+  }
+
+  $('empty').hidden = active.length > 0;
+  $('empty-text').textContent = done.length ? 'Tout est fait, bravo !' : 'Aucune tâche pour l\'instant. Ajoutez-en une ci-dessous.';
+
+  $('done-section').hidden = done.length === 0;
+  const open = !!state.showDone[list.id];
+  $('done-label').textContent = `Terminées (${done.length})`;
+  $('done-toggle').setAttribute('aria-expanded', String(open));
+  $('done-list').hidden = !open;
+  $('done-list').replaceChildren(...(open ? done.map((t) => renderGroup(t, { hideSubs: true })) : []));
+}
+
+function dateGroups(active) {
+  const today = todayISO();
+  const buckets = new Map();
+  const sorted = active.slice().sort((a, b) => dueKey(a).localeCompare(dueKey(b)) || a.order - b.order);
+  sorted.forEach((t) => {
+    let key, label;
+    if (!t.due) { key = 'none'; label = 'Sans date'; }
+    else if (t.due < today) { key = 'late'; label = 'En retard'; }
+    else { key = t.due; label = dayLabel(t.due); }
+    if (!buckets.has(key)) buckets.set(key, { label, tasks: [] });
+    buckets.get(key).tasks.push(t);
+  });
+  const nodes = [];
+  buckets.forEach(({ label, tasks }, key) => {
+    const h = document.createElement('div');
+    h.className = 'group-label' + (key === 'late' ? ' late' : '');
+    h.textContent = label;
+    const ul = document.createElement('ul');
+    ul.className = 'list';
+    ul.append(...tasks.map((t) => renderGroup(t, {})));
+    nodes.push(h, ul);
+  });
+  return nodes;
+}
+
+function renderStarred() {
+  const items = state.tasks
+    .filter((t) => t.starred && !t.done && getList(t.listId))
+    .sort((a, b) => dueKey(a).localeCompare(dueKey(b)) || a.createdAt - b.createdAt);
+  setHeader('Tâches suivies', items.length ? `${items.length} tâche${items.length > 1 ? 's' : ''}, toutes listes confondues` : '', false);
+  const ul = document.createElement('ul');
+  ul.className = 'list';
+  ul.append(...items.map((t) => wrapLi(renderRow(t, { showList: true }))));
+  $('content').replaceChildren(ul);
+  $('empty').hidden = items.length > 0;
+  $('empty-text').textContent = 'Touchez l\'étoile d\'une tâche pour la retrouver ici.';
+  $('done-section').hidden = true;
+}
+
+function renderSearch() {
+  const q = normalize(searchQuery);
+  const items = state.tasks
+    .filter((t) => getList(t.listId) && (normalize(t.title).includes(q) || normalize(t.notes).includes(q)))
+    .sort((a, b) => (a.done - b.done) || dueKey(a).localeCompare(dueKey(b)));
+  setHeader(`Recherche « ${searchQuery} »`, `${items.length} résultat${items.length > 1 ? 's' : ''}`, false);
+  const ul = document.createElement('ul');
+  ul.className = 'list';
+  ul.append(...items.map((t) => wrapLi(renderRow(t, { showList: true, highlight: searchQuery }))));
+  $('content').replaceChildren(ul);
+  $('empty').hidden = items.length > 0;
+  $('empty-text').textContent = 'Aucune tâche ne correspond.';
+  $('done-section').hidden = true;
+}
+
+function normalize(s) {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+function wrapLi(row) {
   const li = document.createElement('li');
-  li.className = 'item' + (t.done ? ' done' : '') + (t.prio ? ' prio' : '');
+  li.className = 'group';
+  li.append(row);
+  return li;
+}
+
+// Une tâche principale et ses sous-tâches.
+function renderGroup(t, { draggable = false, hideSubs = false }) {
+  const li = wrapLi(renderRow(t, { draggable, subsHidden: hideSubs }));
   li.dataset.id = t.id;
+  const subs = hideSubs ? [] : childrenOf(t.id);
+  if (subs.length) {
+    const ul = document.createElement('ul');
+    ul.className = 'subs';
+    ul.append(...subs.map((s) => {
+      const sli = document.createElement('li');
+      sli.append(renderRow(s, {}));
+      return sli;
+    }));
+    li.append(ul);
+  }
+  return li;
+}
+
+function renderRow(t, { draggable = false, showList = false, highlight = '', subsHidden = false }) {
+  const row = document.createElement('div');
+  row.className = 'item' + (t.done ? ' done' : '');
 
   const label = document.createElement('div');
   label.className = 'swipe-label';
@@ -168,47 +470,91 @@ function renderItem(t, today) {
   const inner = document.createElement('div');
   inner.className = 'item-inner';
 
+  if (draggable) {
+    const handle = document.createElement('span');
+    handle.className = 'handle';
+    handle.setAttribute('aria-hidden', 'true');
+    handle.innerHTML = ICON.handle;
+    handle.addEventListener('pointerdown', (e) => startDrag(e, handle, t.id));
+    inner.append(handle);
+  }
+
   const check = document.createElement('button');
   check.className = 'check';
-  check.setAttribute('aria-label', t.done ? 'Marquer comme à faire' : 'Marquer comme terminée');
-  check.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>';
-  check.addEventListener('click', () => toggleTask(t.id));
+  check.setAttribute('aria-label', t.done ? 'Marquer comme non terminée' : 'Marquer comme terminée');
+  check.innerHTML = ICON.check;
+  check.addEventListener('click', () => toggleDone(t.id));
 
   const body = document.createElement('div');
   body.className = 'body';
   const title = document.createElement('div');
   title.className = 'title';
-  title.textContent = t.title;
+  setText(title, t.title, highlight);
+  body.append(title);
+
+  if (t.notes) {
+    const notes = document.createElement('div');
+    notes.className = 'notes';
+    setText(notes, t.notes, highlight);
+    body.append(notes);
+  }
+
   const meta = document.createElement('div');
   meta.className = 'meta';
-  if (t.prio && !t.done) meta.append(tag('Prioritaire', 'prio'));
-  if (t.due) {
-    const cls = t.done ? '' : t.due < today ? 'late' : t.due === today ? 'today' : '';
-    meta.append(tag((t.due < today && !t.done ? 'En retard · ' : '') + formatDue(t.due), cls));
+  if (showList) {
+    const list = getList(t.listId);
+    const parent = t.parentId ? getTask(t.parentId) : null;
+    meta.append(tag(`${list.emoji} ${list.name}${parent ? ' › ' + parent.title : ''}`, 'list-tag'));
   }
-  if (t.notes) meta.append(tag(t.notes.split('\n')[0], 'notes-hint'));
-  body.append(title, meta);
-  body.addEventListener('click', () => openEditor(t.id));
+  if (t.due) {
+    const cls = t.done ? '' : isLate(t) ? 'late' : t.due === todayISO() ? 'today' : '';
+    meta.append(tag(dayLabel(t.due) + (t.time ? ', ' + t.time : ''), cls, ICON.calendar));
+  }
+  if (t.repeat) meta.append(tag(REPEAT_LABEL[t.repeat], '', ICON.repeat));
+  if (!t.parentId && (subsHidden || showList)) {
+    const subs = childrenOf(t.id);
+    if (subs.length) meta.append(tag(`${subs.filter((s) => s.done).length}/${subs.length}`, '', ICON.subtasks));
+  }
+  body.append(meta);
+  body.addEventListener('click', () => openTask(t.id));
 
-  inner.append(check, body);
-  li.append(label, inner);
-  enableSwipe(li, inner, t.id);
-  return li;
+  const star = document.createElement('button');
+  star.className = 'icon-btn star-btn';
+  star.setAttribute('aria-label', t.starred ? 'Ne plus suivre' : 'Suivre');
+  star.setAttribute('aria-pressed', String(!!t.starred));
+  star.innerHTML = ICON.star;
+  star.addEventListener('click', () => updateTask(t.id, { starred: !t.starred }));
+
+  inner.append(check, body, star);
+  row.append(label, inner);
+  enableSwipe(row, inner, t.id);
+  return row;
 }
 
-function tag(text, cls) {
+function setText(el, text, highlight) {
+  if (!highlight) { el.textContent = text; return; }
+  const idx = normalize(text).indexOf(normalize(highlight));
+  if (idx < 0) { el.textContent = text; return; }
+  const mark = document.createElement('mark');
+  mark.textContent = text.slice(idx, idx + highlight.length);
+  el.replaceChildren(text.slice(0, idx), mark, text.slice(idx + highlight.length));
+}
+
+function tag(text, cls, icon) {
   const span = document.createElement('span');
   span.className = 'tag' + (cls ? ' ' + cls : '');
-  span.textContent = text;
+  if (icon) span.innerHTML = icon;
+  span.append(text);
   return span;
 }
 
 // ---------- Glisser pour supprimer ----------
 
-function enableSwipe(li, inner, id) {
+function enableSwipe(row, inner, id) {
   let startX = 0, startY = 0, dx = 0, tracking = false, locked = false;
 
   inner.addEventListener('touchstart', (e) => {
+    if (e.target.closest('.handle')) return;
     const p = e.touches[0];
     startX = p.clientX; startY = p.clientY; dx = 0;
     tracking = true; locked = false;
@@ -220,7 +566,7 @@ function enableSwipe(li, inner, id) {
     const mx = p.clientX - startX, my = p.clientY - startY;
     if (!locked) {
       if (Math.abs(my) > Math.abs(mx) && Math.abs(my) > 8) { tracking = false; return; }
-      if (Math.abs(mx) > 8) { locked = true; li.classList.add('dragging'); }
+      if (Math.abs(mx) > 10) { locked = true; row.classList.add('swiping'); }
     }
     if (locked) {
       dx = Math.min(0, mx);
@@ -231,12 +577,12 @@ function enableSwipe(li, inner, id) {
   const end = () => {
     if (!tracking) return;
     tracking = false;
-    li.classList.remove('dragging');
-    if (dx < -li.offsetWidth * 0.35) {
-      li.classList.add('removing');
+    if (dx < -row.offsetWidth * 0.35) {
+      row.classList.add('removing');
       inner.style.transform = 'translateX(-100%)';
-      setTimeout(() => deleteTasks([id], 'Tâche supprimée'), 180);
+      setTimeout(() => deleteTask(id), 180);
     } else {
+      row.classList.remove('swiping');
       inner.style.transform = '';
     }
   };
@@ -244,53 +590,424 @@ function enableSwipe(li, inner, id) {
   inner.addEventListener('touchcancel', end);
 }
 
-// ---------- Édition ----------
+// ---------- Réorganiser par glisser-déposer ----------
 
-function openEditor(id) {
-  const t = tasks.find((x) => x.id === id);
-  if (!t) return;
-  editingId = id;
-  $('edit-title').value = t.title;
-  $('edit-notes').value = t.notes || '';
-  $('edit-due').value = t.due || '';
-  $('edit-prio').checked = !!t.prio;
-  $('edit-dialog').showModal();
+function startDrag(e, handle, id) {
+  if (e.button !== undefined && e.button !== 0) return;
+  e.preventDefault();
+  const li = handle.closest('.group');
+  const ul = li.parentElement;
+  const others = [...ul.children].filter((x) => x.classList.contains('group') && x !== li);
+  const rect = li.getBoundingClientRect();
+  const offsetY = e.clientY - rect.top;
+
+  const ghost = li.cloneNode(true);
+  ghost.classList.add('drag-ghost');
+  Object.assign(ghost.style, { width: rect.width + 'px', left: rect.left + 'px', top: rect.top + 'px' });
+  document.body.append(ghost);
+  li.classList.add('drag-source');
+
+  const line = document.createElement('li');
+  line.className = 'drop-line';
+  let target = others.indexOf(li.nextElementSibling);
+  if (target < 0) target = others.length;
+  handle.setPointerCapture(e.pointerId);
+  if (navigator.vibrate) navigator.vibrate(15);
+
+  const move = (ev) => {
+    ghost.style.top = (ev.clientY - offsetY) + 'px';
+    if (ev.clientY < 140) window.scrollBy(0, -8);
+    else if (ev.clientY > window.innerHeight - 140) window.scrollBy(0, 8);
+    target = others.findIndex((o) => {
+      const r = o.getBoundingClientRect();
+      return ev.clientY < r.top + r.height / 2;
+    });
+    if (target < 0) target = others.length;
+    if (target < others.length) ul.insertBefore(line, others[target]);
+    else ul.append(line);
+  };
+
+  const up = () => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', up);
+    handle.removeEventListener('pointercancel', up);
+    ghost.remove();
+    line.remove();
+    const ids = others.map((o) => o.dataset.id);
+    ids.splice(target, 0, id);
+    ids.forEach((tid, i) => { const t = getTask(tid); if (t) t.order = i; });
+    save();
+    render();
+  };
+
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', up);
+  handle.addEventListener('pointercancel', up);
 }
 
-$('edit-form').addEventListener('submit', () => {
-  const title = $('edit-title').value.trim();
-  if (editingId && title) {
-    updateTask(editingId, {
-      title,
-      notes: $('edit-notes').value.trim(),
-      due: $('edit-due').value,
-      prio: $('edit-prio').checked,
+// ---------- Détail d'une tâche ----------
+
+function openTask(id) {
+  const t = getTask(id);
+  if (!t) return;
+  editingId = id;
+  fillTaskDialog(t);
+  $('task-dialog').showModal();
+  $('task-title').blur();
+}
+
+function fillTaskDialog(t) {
+  const select = $('task-list');
+  select.replaceChildren(...state.lists.map((l) => new Option(`${l.emoji} ${l.name}`, l.id)));
+  select.value = t.listId;
+  select.disabled = !!t.parentId;
+  $('task-title').value = t.title;
+  $('task-notes').value = t.notes || '';
+  $('task-due').value = t.due || '';
+  $('task-time').value = t.time || '';
+  $('task-time').disabled = !t.due;
+  $('task-repeat').value = t.repeat || '';
+  $('task-repeat').closest('.field').hidden = !!t.parentId;
+  $('task-star').setAttribute('aria-pressed', String(!!t.starred));
+  $('task-toggle-done').textContent = t.done ? 'Marquer comme non terminée' : 'Marquer comme terminée';
+  document.querySelector('.subtasks').hidden = !!t.parentId;
+  renderSubtasks(t);
+}
+
+function renderSubtasks(t) {
+  $('sub-list').replaceChildren(...childrenOf(t.id).map((s) => {
+    const li = document.createElement('li');
+    li.className = 'sub-row' + (s.done ? ' done' : '');
+    const check = document.createElement('button');
+    check.type = 'button';
+    check.className = 'check';
+    check.setAttribute('aria-label', s.done ? 'Marquer comme non terminée' : 'Marquer comme terminée');
+    check.innerHTML = ICON.check;
+    check.addEventListener('click', () => {
+      updateTask(s.id, { done: !s.done, doneAt: s.done ? null : Date.now() }, false);
+      renderSubtasks(t);
     });
-  }
-  editingId = null;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = s.title;
+    input.maxLength = 300;
+    input.setAttribute('aria-label', 'Sous-tâche');
+    input.addEventListener('change', () => {
+      const v = input.value.trim();
+      if (v) updateTask(s.id, { title: v }, false);
+      else input.value = s.title;
+    });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'icon-btn';
+    del.setAttribute('aria-label', 'Supprimer la sous-tâche');
+    del.innerHTML = ICON.close;
+    del.addEventListener('click', () => {
+      state.tasks = state.tasks.filter((x) => x.id !== s.id);
+      save();
+      renderSubtasks(t);
+    });
+    li.append(check, input, del);
+    return li;
+  }));
+}
+
+const editing = () => getTask(editingId);
+
+$('task-title').addEventListener('input', (e) => {
+  const v = e.target.value.trim();
+  if (v && editing()) updateTask(editingId, { title: v }, false);
+});
+$('task-notes').addEventListener('input', (e) => {
+  if (editing()) updateTask(editingId, { notes: e.target.value.trim() }, false);
+});
+$('task-due').addEventListener('change', (e) => {
+  if (!editing()) return;
+  updateTask(editingId, { due: e.target.value, time: e.target.value ? editing().time : '' }, false);
+  fillTaskDialog(editing());
+});
+$('task-time').addEventListener('change', (e) => {
+  if (editing()) updateTask(editingId, { time: e.target.value }, false);
+});
+$('task-due-clear').addEventListener('click', () => {
+  if (!editing()) return;
+  updateTask(editingId, { due: '', time: '', repeat: '' }, false);
+  fillTaskDialog(editing());
+});
+document.querySelectorAll('[data-quick]').forEach((b) => {
+  b.addEventListener('click', () => {
+    if (!editing()) return;
+    updateTask(editingId, { due: addDays(todayISO(), Number(b.dataset.quick)) }, false);
+    fillTaskDialog(editing());
+  });
+});
+$('task-repeat').addEventListener('change', (e) => {
+  if (!editing()) return;
+  const changes = { repeat: e.target.value };
+  if (e.target.value && !editing().due) changes.due = todayISO();
+  updateTask(editingId, changes, false);
+  fillTaskDialog(editing());
+});
+$('task-list').addEventListener('change', (e) => {
+  const t = editing();
+  if (!t) return;
+  const listId = e.target.value;
+  const siblings = state.tasks.filter((x) => x.listId === listId && !x.parentId);
+  t.order = siblings.length ? Math.min(...siblings.map((x) => x.order)) - 1 : 0;
+  t.listId = listId;
+  childrenOf(t.id).forEach((s) => { s.listId = listId; });
+  save();
+  showToast(`Déplacée vers « ${getList(listId).name} »`);
+});
+$('task-star').addEventListener('click', () => {
+  const t = editing();
+  if (!t) return;
+  updateTask(editingId, { starred: !t.starred }, false);
+  $('task-star').setAttribute('aria-pressed', String(!!t.starred));
+});
+$('task-delete').addEventListener('click', () => {
+  const id = editingId;
+  $('task-dialog').close();
+  deleteTask(id);
+});
+$('task-toggle-done').addEventListener('click', () => {
+  const id = editingId;
+  $('task-dialog').close();
+  toggleDone(id);
+});
+$('task-close').addEventListener('click', () => $('task-dialog').close());
+$('task-form').addEventListener('submit', (e) => e.preventDefault());
+
+function addPendingSubtask() {
+  const t = editing();
+  const title = $('sub-new').value.trim();
+  if (!t || !title) return;
+  addTask({ title, listId: t.listId, parentId: t.id, atTop: false });
+  $('sub-new').value = '';
+  renderSubtasks(t);
+}
+
+$('sub-new').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  addPendingSubtask();
 });
 
-$('edit-cancel').addEventListener('click', () => $('edit-dialog').close());
-
-$('edit-delete').addEventListener('click', () => {
-  const id = editingId;
-  $('edit-dialog').close();
+$('task-dialog').addEventListener('close', () => {
+  addPendingSubtask();
   editingId = null;
-  if (id) deleteTasks([id], 'Tâche supprimée');
+  render();
+});
+
+// ---------- Listes ----------
+
+function openListDialog(mode) {
+  listDialogMode = mode;
+  const list = currentList();
+  $('list-dialog-title').textContent = mode === 'create' ? 'Nouvelle liste' : 'Modifier la liste';
+  $('list-name').value = mode === 'rename' && list ? list.name : '';
+  pickedEmoji = mode === 'rename' && list ? list.emoji : EMOJIS[state.lists.length % EMOJIS.length];
+  renderEmojiRow();
+  $('list-dialog').showModal();
+  $('list-name').focus();
+}
+
+function renderEmojiRow() {
+  $('emoji-row').replaceChildren(...EMOJIS.map((em) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = em;
+    b.setAttribute('aria-label', 'Icône ' + em);
+    b.setAttribute('aria-pressed', String(em === pickedEmoji));
+    b.addEventListener('click', () => { pickedEmoji = em; renderEmojiRow(); });
+    return b;
+  }));
+}
+
+$('list-form').addEventListener('submit', (e) => {
+  const name = $('list-name').value.trim();
+  if (!name) { e.preventDefault(); return; }
+  if (listDialogMode === 'create') {
+    const list = newList(name, pickedEmoji);
+    state.lists.push(list);
+    state.view = list.id;
+  } else {
+    Object.assign(currentList(), { name, emoji: pickedEmoji });
+  }
+  save();
+  render();
+});
+$('list-cancel').addEventListener('click', () => $('list-dialog').close());
+
+function confirmAction(title, text, okLabel) {
+  return new Promise((resolve) => {
+    const dlg = $('confirm-dialog');
+    $('confirm-title').textContent = title;
+    $('confirm-text').textContent = text;
+    $('confirm-ok').textContent = okLabel;
+    dlg.returnValue = '';
+    dlg.addEventListener('close', () => resolve(dlg.returnValue === 'ok'), { once: true });
+    dlg.showModal();
+  });
+}
+
+async function deleteCurrentList() {
+  const list = currentList();
+  if (state.lists.length === 1) return showToast('Impossible de supprimer la dernière liste');
+  const count = state.tasks.filter((t) => t.listId === list.id && !t.parentId).length;
+  const text = count
+    ? `Ses ${count} tâche${count > 1 ? 's' : ''} seront aussi supprimée${count > 1 ? 's' : ''}.`
+    : 'Cette liste est vide.';
+  if (!await confirmAction(`Supprimer « ${list.name} » ?`, text, 'Supprimer')) return;
+  snapshot();
+  state.tasks = state.tasks.filter((t) => t.listId !== list.id);
+  state.lists = state.lists.filter((l) => l.id !== list.id);
+  state.view = state.lists[0].id;
+  save();
+  render();
+  showToast('Liste supprimée', true);
+}
+
+function clearDone() {
+  const list = currentList();
+  const doneIds = new Set(state.tasks.filter((t) => t.listId === list.id && t.done).map((t) => t.id));
+  if (doneIds.size === 0) return showToast('Aucune tâche terminée');
+  snapshot();
+  state.tasks = state.tasks.filter((t) => !doneIds.has(t.id) && !doneIds.has(t.parentId));
+  save();
+  render();
+  showToast('Tâches terminées supprimées', true);
+}
+
+// ---------- Menus ----------
+
+const MENUS = { 'app-menu': 'app-menu-btn', 'list-menu': 'list-menu-btn', 'sort-menu': 'sort-btn' };
+
+function closeMenus() {
+  Object.entries(MENUS).forEach(([m, b]) => {
+    $(m).hidden = true;
+    $(b).setAttribute('aria-expanded', 'false');
+  });
+}
+
+function openMenu(menuId) {
+  const wasOpen = !$(menuId).hidden;
+  closeMenus();
+  if (wasOpen) return;
+  const btn = $(MENUS[menuId]);
+  const r = btn.getBoundingClientRect();
+  const menu = $(menuId);
+  menu.style.top = r.bottom + 4 + 'px';
+  menu.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+  menu.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+}
+
+$('app-menu-btn').addEventListener('click', (e) => { e.stopPropagation(); openMenu('app-menu'); });
+$('list-menu-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('list-menu').querySelector('[data-action="delete-list"]').disabled = state.lists.length === 1;
+  openMenu('list-menu');
+});
+$('sort-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const sort = currentList().sort;
+  $('sort-menu').querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.sort === sort)));
+  openMenu('sort-menu');
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.menu')) closeMenus();
+});
+window.addEventListener('scroll', closeMenus, { passive: true });
+
+$('sort-menu').addEventListener('click', (e) => {
+  const sort = e.target.dataset.sort;
+  if (!sort) return;
+  closeMenus();
+  currentList().sort = sort;
+  save();
+  render();
+});
+
+$('list-menu').addEventListener('click', (e) => {
+  const action = e.target.dataset.action;
+  if (!action) return;
+  closeMenus();
+  if (action === 'rename-list') openListDialog('rename');
+  else if (action === 'delete-list') deleteCurrentList();
+  else if (action === 'clear-done') clearDone();
+});
+
+$('app-menu').addEventListener('click', (e) => {
+  const action = e.target.dataset.action;
+  if (!action) return;
+  closeMenus();
+  if (action === 'export') exportBackup();
+  else if (action === 'import') $('import-file').click();
+});
+
+$('done-toggle').addEventListener('click', () => {
+  const list = currentList();
+  state.showDone[list.id] = !state.showDone[list.id];
+  save();
+  render();
+});
+
+// ---------- Recherche ----------
+
+function closeSearch() {
+  searchQuery = '';
+  $('search-input').value = '';
+  $('search').hidden = true;
+  $('search-btn').setAttribute('aria-expanded', 'false');
+}
+
+$('search-btn').addEventListener('click', () => {
+  if ($('search').hidden) {
+    $('search').hidden = false;
+    $('search-btn').setAttribute('aria-expanded', 'true');
+    $('search-input').focus();
+  } else {
+    closeSearch();
+    render();
+  }
+});
+$('search-input').addEventListener('input', (e) => {
+  searchQuery = e.target.value.trim();
+  render();
 });
 
 // ---------- Ajout ----------
 
+function updateHint() {
+  const parsed = parseQuick($('new-title').value);
+  const hint = $('nl-hint');
+  hint.hidden = !parsed.due;
+  if (parsed.due) hint.textContent = '📅 ' + dayLabel(parsed.due) + (parsed.time ? ' à ' + parsed.time : '') + ' détecté';
+}
+
+$('new-title').addEventListener('input', updateHint);
+
 $('composer').addEventListener('submit', (e) => {
   e.preventDefault();
   const input = $('new-title');
-  const title = input.value.trim();
-  if (!title) return;
-  addTask(title, $('new-due').value, $('new-prio').checked);
+  const raw = input.value.trim();
+  if (!raw) return;
+  const parsed = parseQuick(raw);
+  const listId = getList(state.view) ? state.view : state.lists[0].id;
+  addTask({
+    title: parsed.title,
+    listId,
+    due: $('new-due').value || parsed.due,
+    time: $('new-due').value ? '' : parsed.time,
+    starred: $('new-star').checked || state.view === 'starred',
+  });
+  if (searchQuery) closeSearch();
   input.value = '';
   $('new-due').value = '';
-  $('new-prio').checked = false;
-  if (filter === 'done') setFilter('active');
+  $('new-star').checked = false;
+  updateHint();
+  render();
   input.focus();
 });
 
@@ -300,51 +1017,11 @@ $('extra-btn').addEventListener('click', () => {
   $('extra-btn').setAttribute('aria-expanded', String(!extra.hidden));
 });
 
-// ---------- Filtres ----------
-
-function setFilter(f) {
-  filter = f;
-  writePref(FILTER_KEY, f);
-  render();
-}
-
-document.querySelectorAll('.filters button').forEach((b) => {
-  b.addEventListener('click', () => setFilter(b.dataset.filter));
-});
-
-// ---------- Menu ----------
-
-function toggleMenu(open) {
-  $('menu').hidden = !open;
-  $('menu-btn').setAttribute('aria-expanded', String(open));
-}
-
-$('menu-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  toggleMenu($('menu').hidden);
-});
-
-document.addEventListener('click', (e) => {
-  if (!$('menu').hidden && !$('menu').contains(e.target)) toggleMenu(false);
-});
-
-$('menu').addEventListener('click', (e) => {
-  const action = e.target.dataset.action;
-  if (!action) return;
-  toggleMenu(false);
-  if (action === 'clear-done') {
-    const ids = tasks.filter((t) => t.done).map((t) => t.id);
-    if (ids.length === 0) return showToast('Aucune tâche terminée');
-    deleteTasks(ids, `${ids.length} tâche${ids.length > 1 ? 's' : ''} supprimée${ids.length > 1 ? 's' : ''}`);
-  } else if (action === 'export') {
-    exportBackup();
-  } else if (action === 'import') {
-    $('import-file').click();
-  }
-});
+// ---------- Sauvegarde ----------
 
 function exportBackup() {
-  const blob = new Blob([JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), tasks }, null, 2)], { type: 'application/json' });
+  const data = { version: 2, exportedAt: new Date().toISOString(), lists: state.lists, tasks: state.tasks };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -361,17 +1038,29 @@ $('import-file').addEventListener('change', async (e) => {
   if (!file) return;
   try {
     const data = JSON.parse(await file.text());
-    const incoming = Array.isArray(data) ? data : data.tasks;
-    if (!Array.isArray(incoming)) throw new Error('format');
-    const valid = incoming.filter((t) => t && typeof t.id === 'string' && typeof t.title === 'string');
-    const known = new Set(tasks.map((t) => t.id));
-    const added = valid.filter((t) => !known.has(t.id));
-    undoState = tasks.slice();
-    tasks = tasks.concat(added);
+    snapshot();
+    let added = 0;
+    if (data && Array.isArray(data.lists) && Array.isArray(data.tasks)) {
+      const knownLists = new Set(state.lists.map((l) => l.id));
+      data.lists.filter((l) => l && l.id && l.name && !knownLists.has(l.id))
+        .forEach((l) => state.lists.push({ sort: 'manual', emoji: EMOJIS[0], ...l }));
+      const lists = new Set(state.lists.map((l) => l.id));
+      const known = new Set(state.tasks.map((t) => t.id));
+      data.tasks.filter((t) => t && t.id && typeof t.title === 'string' && lists.has(t.listId) && !known.has(t.id))
+        .forEach((t) => { state.tasks.push(t); added++; });
+    } else {
+      const legacy = Array.isArray(data) ? data : data && data.tasks;
+      if (!Array.isArray(legacy)) throw new Error('format');
+      const known = new Set(state.tasks.map((t) => t.id));
+      const listId = getList(state.view) ? state.view : state.lists[0].id;
+      legacy.filter((t) => t && typeof t.title === 'string' && !known.has(String(t.id)))
+        .forEach((t, i) => { state.tasks.push(fromLegacy(t, listId, i)); added++; });
+    }
     save();
     render();
-    showToast(`${added.length} tâche${added.length > 1 ? 's' : ''} importée${added.length > 1 ? 's' : ''}`, added.length > 0);
+    showToast(`${added} tâche${added > 1 ? 's' : ''} importée${added > 1 ? 's' : ''}`, added > 0);
   } catch {
+    undoSnapshot = null;
     showToast('Fichier de sauvegarde invalide');
   }
 });
@@ -381,16 +1070,16 @@ $('import-file').addEventListener('change', async (e) => {
 function showToast(text, undoable = false) {
   $('toast-text').textContent = text;
   $('toast-undo').hidden = !undoable;
-  if (!undoable) undoState = null;
+  if (!undoable) undoSnapshot = null;
   $('toast').hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { $('toast').hidden = true; undoState = null; }, 4000);
+  toastTimer = setTimeout(() => { $('toast').hidden = true; undoSnapshot = null; }, 5000);
 }
 
 $('toast-undo').addEventListener('click', () => {
-  if (undoState) {
-    tasks = undoState;
-    undoState = null;
+  if (undoSnapshot) {
+    state = undoSnapshot;
+    undoSnapshot = null;
     save();
     render();
   }
@@ -399,12 +1088,10 @@ $('toast-undo').addEventListener('click', () => {
 
 // ---------- Démarrage ----------
 
-// Synchronise si l'app est ouverte dans plusieurs onglets.
 window.addEventListener('storage', (e) => {
-  if (e.key === STORAGE_KEY) { tasks = load(); render(); }
+  if (e.key === STORAGE_KEY) { state = load(); render(); }
 });
 
-// Recalcule « aujourd'hui / en retard » quand on revient sur l'app.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') render();
 });
@@ -415,4 +1102,5 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+save();
 render();

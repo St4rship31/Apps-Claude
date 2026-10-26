@@ -1,19 +1,34 @@
 # Apps-Claude
 
-## Mes tâches — to-do list mobile (`todo/`)
+## Tâches — to-do list mobile (`todo/`)
 
-Une application de to-do list installable sur téléphone (PWA) : elle s'ouvre en plein écran
-comme une app native, fonctionne hors ligne et garde vos tâches sur l'appareil.
+Une app de listes de tâches inspirée de Google Tasks, installable sur téléphone (PWA) :
+elle s'ouvre en plein écran comme une app native, fonctionne hors ligne et garde vos
+tâches sur l'appareil.
 
 ### Fonctionnalités
 
-- Ajouter une tâche en un geste, avec échéance et priorité en option (icône calendrier)
-- Cocher pour terminer, toucher une tâche pour la modifier (titre, notes, échéance, priorité)
-- Glisser vers la gauche pour supprimer, avec bouton « Annuler »
-- Filtres : À faire, Aujourd'hui (en retard, du jour ou prioritaires), Terminées, Toutes
-- Tri automatique : en retard d'abord, puis prioritaires, puis par échéance
+**Listes**
+- Plusieurs listes (Perso, Travail, Courses…) affichées en onglets, chacune avec son icône
+- Créer, renommer et supprimer une liste (avec confirmation et « Annuler »)
+- Onglet ⭐ **Suivies** : toutes les tâches marquées d'une étoile, toutes listes confondues
+
+**Tâches**
+- Saisie rapide en langage naturel : « Appeler Paul demain 18h » crée la tâche avec la date et l'heure
+  (comprend aujourd'hui, demain, après-demain, les jours de la semaine et les heures « 18h », « 9h30 », « 14:00 »)
+- Détails, date, heure, étoile, sous-tâches
+- Répétition : tous les jours, en semaine, chaque semaine, chaque mois, chaque année.
+  En cochant une tâche répétitive, la suivante est créée automatiquement
+- Déplacer une tâche vers une autre liste
+- Cocher pour terminer ; section « Terminées » repliable
+- Glisser vers la gauche pour supprimer ; « Annuler » après chaque action importante
+
+**Organisation**
+- Tri par liste : Mon ordre (réorganisation par glisser-déposer avec la poignée ⋮⋮),
+  Date (regroupé par En retard / Aujourd'hui / Demain / … / Sans date), ou Suivies en premier
+- Recherche dans toutes les listes
 - Mode sombre automatique, fonctionnement hors ligne
-- Sauvegarde / restauration en fichier JSON (menu ⋮) pour changer de téléphone
+- Sauvegarde / restauration en fichier JSON (menu ⋮ en haut) pour changer de téléphone
 
 ### Mise en ligne
 
