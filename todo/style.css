@@ -1,0 +1,289 @@
+:root {
+  --bg: #f6f6fb;
+  --surface: #ffffff;
+  --text: #1c1b29;
+  --muted: #6b6a80;
+  --border: #e3e2ee;
+  --accent: #4f46e5;
+  --accent-soft: #eceafe;
+  --danger: #dc2626;
+  --prio: #ea580c;
+  --shadow: 0 1px 2px rgba(20, 18, 50, 0.06), 0 4px 16px rgba(20, 18, 50, 0.06);
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111018;
+    --surface: #1c1b26;
+    --text: #ecebf5;
+    --muted: #9a99ad;
+    --border: #2d2c3a;
+    --accent: #8b85ff;
+    --accent-soft: #2a2850;
+    --danger: #f87171;
+    --prio: #fb923c;
+    --shadow: none;
+  }
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html, body { margin: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  -webkit-tap-highlight-color: transparent;
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+
+button, input, textarea { font: inherit; color: inherit; }
+
+svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding: calc(16px + env(safe-area-inset-top)) 16px 8px;
+}
+
+.top-row { display: flex; align-items: flex-start; justify-content: space-between; }
+
+h1 { font-size: 28px; margin: 0; letter-spacing: -0.02em; }
+
+.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 14px; }
+
+.icon-btn {
+  border: 0;
+  background: transparent;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--muted);
+  flex: none;
+}
+.icon-btn:active { background: var(--accent-soft); }
+.icon-btn[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
+#menu-btn svg { fill: currentColor; stroke: none; }
+
+.menu {
+  position: absolute;
+  right: 16px;
+  top: calc(60px + env(safe-area-inset-top));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  min-width: 240px;
+}
+.menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.menu button + button { border-top: 1px solid var(--border); }
+.menu button:active { background: var(--accent-soft); }
+
+.filters {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.filters::-webkit-scrollbar { display: none; }
+.filters button {
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.filters button[aria-selected="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+main { padding: 8px 16px; }
+
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.item {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.item.dragging { background: var(--danger); }
+.item-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  border-radius: 14px;
+  touch-action: pan-y;
+  transition: transform 0.2s ease;
+}
+.item.dragging .item-inner { transition: none; }
+.item.removing { background: var(--danger); }
+.swipe-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 20px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.check {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+.check svg { width: 16px; height: 16px; stroke-width: 3; opacity: 0; color: #fff; }
+.item.prio .check { border-color: var(--prio); }
+.item.done .check { background: var(--accent); border-color: var(--accent); }
+.item.done .check svg { opacity: 1; }
+
+.body { flex: 1; min-width: 0; cursor: pointer; }
+.title { overflow-wrap: anywhere; line-height: 1.35; }
+.item.done .title { text-decoration: line-through; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.meta:empty { display: none; }
+.tag { border-radius: 6px; padding: 1px 6px; background: var(--accent-soft); }
+.tag.prio { background: transparent; color: var(--prio); padding: 0; font-weight: 600; }
+.tag.late { background: var(--danger); color: #fff; }
+.tag.today { background: var(--accent); color: #fff; }
+.notes-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+.empty { text-align: center; color: var(--muted); padding: 64px 24px; }
+.empty svg { width: 48px; height: 48px; stroke: var(--accent); opacity: 0.6; }
+
+.composer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+}
+.composer-row { display: flex; align-items: center; gap: 8px; }
+.composer-extra { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 0 4px 10px; font-size: 14px; color: var(--muted); }
+.composer-extra input[type="date"] { margin-left: 6px; }
+#new-title {
+  flex: 1;
+  min-width: 0;
+  height: 46px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 0 14px;
+  font-size: 16px; /* évite le zoom auto sur iOS */
+  outline: none;
+}
+#new-title:focus { border-color: var(--accent); }
+.add-btn {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.add-btn:active { transform: scale(0.95); }
+
+input[type="date"], input[type="text"], textarea {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 16px;
+}
+.prio-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.prio-toggle input { width: 18px; height: 18px; accent-color: var(--prio); }
+
+dialog {
+  border: 0;
+  border-radius: 20px;
+  padding: 20px;
+  width: min(92vw, 440px);
+  background: var(--surface);
+  color: var(--text);
+}
+dialog::backdrop { background: rgba(10, 10, 25, 0.45); }
+dialog h2 { margin: 0 0 14px; font-size: 20px; }
+#edit-form label:not(.prio-toggle) { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 14px; color: var(--muted); }
+#edit-form label input, #edit-form textarea { color: var(--text); width: 100%; }
+#edit-form textarea { resize: vertical; }
+.dialog-actions { display: flex; gap: 8px; margin-top: 18px; align-items: center; }
+.dialog-actions .spacer { flex: 1; }
+.dialog-actions button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+.dialog-actions .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dialog-actions .danger { color: var(--danger); border-color: transparent; padding-left: 0; }
+
+.toast {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  z-index: 10;
+  background: #23222f;
+  color: #fff;
+  border-radius: 12px;
+  padding: 10px 10px 10px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+.toast[hidden] { display: none; }
+.toast button { border: 0; background: none; color: #a5a0ff; font-weight: 600; padding: 6px 8px; cursor: pointer; }
+
+@media (min-width: 640px) {
+  .top, main, .composer-row, .composer-extra { max-width: 600px; margin-left: auto; margin-right: auto; }
+  .menu { right: max(16px, calc(50% - 284px)); }
+}
